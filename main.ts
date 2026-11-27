@@ -48,8 +48,12 @@ writeFileSync(dossierPath, dossier);
 
 // The grader collects the outputs as another user, and the source files
 // are mode 660, so copied outputs would otherwise be unreadable. Make
-// everything world-readable: 0755 for directories (including outDir
-// itself), 0644 for files.
+// everything world-readable: 0755 for directories, 0644 for files.
+// Never chmod outDir itself: in the grader /output is a root-owned
+// mounted volume and the program runs as user 65534 (nobody), so
+// chmod on outDir throws EPERM and the run fails. Chmod only the
+// entries inside outDir, which this program created and owns, so the
+// fix is safe on any mount: outDir keeps whatever mode the grader gave it.
 function chmodTree(path: string): void {
   if (statSync(path).isDirectory()) {
     chmodSync(path, 0o755);
@@ -58,7 +62,7 @@ function chmodTree(path: string): void {
     chmodSync(path, 0o644);
   }
 }
-chmodTree(outDir);
+for (const entry of readdirSync(outDir)) chmodTree(join(outDir, entry));
 
 // A short hand-in summary on stdout, so a run's log shows what went out.
 const appFiles = readdirSync(join(outDir, "app"));
