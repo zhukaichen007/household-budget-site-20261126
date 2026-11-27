@@ -9,7 +9,7 @@
 // Outside the grader, MAKEFUN_OUTPUT_DIR stands in for /output:
 //   MAKEFUN_OUTPUT_DIR=out node main.ts
 
-import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildDossier } from "./vendor/makefun-frontend.ts";
@@ -18,8 +18,13 @@ const root = dirname(fileURLToPath(import.meta.url));
 const outDir = process.env.MAKEFUN_OUTPUT_DIR ?? "/output";
 
 // Start from a clean output directory so a stale file can never leak in.
-rmSync(outDir, { recursive: true, force: true });
+// Never remove outDir itself: the grader mounts /output as a volume, and
+// removing a mount point fails with "Device or resource busy". Clear only
+// its contents instead.
 mkdirSync(outDir, { recursive: true });
+for (const entry of readdirSync(outDir)) {
+  rmSync(join(outDir, entry), { recursive: true, force: true });
+}
 
 // The whole site, as-is: every file under app/ is served at the server root.
 cpSync(join(root, "app"), join(outDir, "app"), { recursive: true });
@@ -40,6 +45,20 @@ const dossier = buildDossier(outDir, {
 });
 const dossierPath = join(outDir, "dossier.json");
 writeFileSync(dossierPath, dossier);
+
+// The grader collects the outputs as another user, and the source files
+// are mode 660, so copied outputs would otherwise be unreadable. Make
+// everything world-readable: 0755 for directories (including outDir
+// itself), 0644 for files.
+function chmodTree(path: string): void {
+  if (statSync(path).isDirectory()) {
+    chmodSync(path, 0o755);
+    for (const entry of readdirSync(path)) chmodTree(join(path, entry));
+  } else {
+    chmodSync(path, 0o644);
+  }
+}
+chmodTree(outDir);
 
 // A short hand-in summary on stdout, so a run's log shows what went out.
 const appFiles = readdirSync(join(outDir, "app"));
